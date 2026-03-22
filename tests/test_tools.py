@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.conftest import BIKE_OUTLET_YAML
+
 if TYPE_CHECKING:
     from fastmcp.client import Client
 
@@ -188,6 +190,107 @@ async def test_get_esphome_schema_invalid_component(mcp_client: Client) -> None:
     result = await mcp_client.call_tool(
         "get_esphome_schema", {"version": "2025.8.0", "component": "nonexistent_component"}
     )
+    text = result.content[0].text
+
+    assert "not found" in text.lower()
+
+
+# --- Write tool tests ---
+
+
+@pytest.mark.asyncio
+async def test_validate_device_configuration(mcp_client: Client) -> None:
+    """validate_device_configuration should return validation output for a known device."""
+    result = await mcp_client.call_tool(
+        "validate_device_configuration", {"device_name": "bike-outlet"}
+    )
+    text = result.content[0].text
+
+    assert "validation result" in text.lower()
+    assert len(text) > 0
+
+
+@pytest.mark.asyncio
+async def test_validate_device_configuration_not_found(mcp_client: Client) -> None:
+    """validate_device_configuration should return error for unknown device."""
+    result = await mcp_client.call_tool(
+        "validate_device_configuration", {"device_name": "nonexistent"}
+    )
+    text = result.content[0].text
+
+    assert "not found" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_edit_device_configuration(mcp_client: Client) -> None:
+    """edit_device_configuration should save and validate a modified config."""
+    # Modify the friendly name
+    modified_yaml = BIKE_OUTLET_YAML.replace(
+        "friendly_name: Bike Outlet", "friendly_name: Bike Outlet Modified"
+    )
+
+    result = await mcp_client.call_tool(
+        "edit_device_configuration",
+        {"device_name": "bike-outlet", "yaml_content": modified_yaml},
+    )
+    text = result.content[0].text
+
+    assert "saved" in text.lower()
+    assert "validation result" in text.lower()
+
+    # Verify the change persisted
+    read_result = await mcp_client.call_tool(
+        "get_device_configuration", {"device_name": "bike-outlet"}
+    )
+    read_text = read_result.content[0].text
+    assert "Bike Outlet Modified" in read_text
+
+    # Restore original config
+    await mcp_client.call_tool(
+        "edit_device_configuration",
+        {"device_name": "bike-outlet", "yaml_content": BIKE_OUTLET_YAML},
+    )
+
+
+@pytest.mark.asyncio
+async def test_edit_device_configuration_not_found(mcp_client: Client) -> None:
+    """edit_device_configuration should return error for unknown device."""
+    result = await mcp_client.call_tool(
+        "edit_device_configuration",
+        {"device_name": "nonexistent", "yaml_content": "esphome:\n  name: test\n"},
+    )
+    text = result.content[0].text
+
+    assert "not found" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_install_device_configuration(mcp_client: Client) -> None:
+    """install_device_configuration should attempt compile+upload (OTA will fail)."""
+    result = await mcp_client.call_tool(
+        "install_device_configuration", {"device_name": "bike-outlet"}
+    )
+    text = result.content[0].text
+
+    # Compilation should start; OTA upload will fail since device is offline
+    assert "install result" in text.lower()
+    assert len(text) > 0
+
+
+@pytest.mark.asyncio
+async def test_update_device(mcp_client: Client) -> None:
+    """update_device should attempt compile+upload (OTA will fail)."""
+    result = await mcp_client.call_tool("update_device", {"device_name": "bike-outlet"})
+    text = result.content[0].text
+
+    assert "update result" in text.lower()
+    assert len(text) > 0
+
+
+@pytest.mark.asyncio
+async def test_update_device_not_found(mcp_client: Client) -> None:
+    """update_device should return error for unknown device."""
+    result = await mcp_client.call_tool("update_device", {"device_name": "nonexistent"})
     text = result.content[0].text
 
     assert "not found" in text.lower()

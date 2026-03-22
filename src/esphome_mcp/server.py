@@ -11,7 +11,8 @@ from esphome_mcp.client import fetch_schema, get_client
 logger = logging.getLogger(__name__)
 
 INSTRUCTIONS = """\
-This server provides read-only access to an ESPHome dashboard.
+This server provides access to an ESPHome dashboard, with tools for reading device \
+information and modifying device configurations.
 
 ## Workflow
 
@@ -19,7 +20,7 @@ This server provides read-only access to an ESPHome dashboard.
 Device names must match exactly (case-insensitive), so confirm the name against this list \
 before passing it to any other tool.
 
-2. Once you have a valid device name, use the other tools as needed:
+2. Once you have a valid device name, use the read tools as needed:
    - `list_devices` — detailed info on all devices (versions, status, addresses, platform)
    - `check_device_update` — check if a firmware update is available
    - `get_device_status` — check if a device is online or offline
@@ -34,6 +35,20 @@ The device must be online for logs to be available.
    - Use `get_device_version` to find the version a device is running, then fetch the \
 matching schema.
 
+4. To modify a device configuration:
+   - First read the current config with `get_device_configuration`
+   - Make your changes to the YAML
+   - Save with `edit_device_configuration` — this saves AND validates, reporting any errors
+   - Ensure edits conform to the ESPHome schema (use `get_esphome_schema` to check)
+   - If validation passes, flash with `install_device_configuration`
+
+5. To validate without saving:
+   - Use `validate_device_configuration` to check a device's current saved config
+
+6. To update a device to the latest ESPHome version:
+   - Check for updates with `check_device_update`
+   - If an update is available, use `update_device` to recompile and flash
+
 ## ESPHome documentation
 - Components: https://esphome.io/components/
 - Guides: https://esphome.io/guides/
@@ -41,9 +56,10 @@ matching schema.
 - Changelog: https://esphome.io/changelog
 
 ## Important notes
-- All tools are read-only. No changes can be made to devices or configurations.
 - Device names are the ESPHome `name` field (e.g. "bike-outlet"), not the friendly name.
 - If a tool returns "not found", re-check the name with `list_device_names`.
+- `install_device_configuration` and `update_device` are destructive — they compile and \
+flash firmware to a physical device. The device must be online for OTA upload.
 """
 
 mcp = FastMCP(
@@ -400,3 +416,191 @@ async def get_device_logs(device_name: str, duration: int = 10) -> str:
 
     logger.info("Collected %d bytes of logs from %r", len(logs), device_name)
     return logs
+
+
+async def _resolve_filename(device_name: str) -> tuple[dict[str, Any], str] | str:
+    """Resolve a device name to its entry dict and configuration filename.
+
+    Returns (device_dict, filename) on success, or an error string.
+    """
+    result = await _resolve_device(device_name)
+    if isinstance(result, str):
+        return result
+    filename = result.get("configuration", "")
+    if not filename:
+        return f"No configuration file found for device '{device_name}'."
+    return result, filename
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+    }
+)
+async def validate_device_configuration(device_name: str) -> str:
+    """Validate the current saved configuration for an ESPHome device.
+
+    Runs the ESPHome configuration validator against the device's YAML file
+    without modifying anything.
+
+    Args:
+        device_name: The name of the device whose configuration to validate.
+    """
+    logger.info("Validating configuration for device=%r", device_name)
+    try:
+        resolved = await _resolve_filename(device_name)
+    except Exception as e:
+        logger.error("Failed to resolve device %r: %s", device_name, e)
+        return f"Error: {e}"
+
+    if isinstance(resolved, str):
+        return resolved
+
+    _device, filename = resolved
+
+    try:
+        output, exit_code = await get_client().validate_configuration(filename)
+    except Exception as e:
+        logger.error("Failed to validate %r: %s", device_name, e)
+        return f"Error validating configuration: {e}"
+
+    status = "VALID" if exit_code == 0 else "INVALID"
+    logger.info("Validation for %r: %s (exit_code=%d)", device_name, status, exit_code)
+    return f"Validation result: {status}\n\n{output}"
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+    }
+)
+async def edit_device_configuration(device_name: str, yaml_content: str) -> str:
+    """Save a new YAML configuration for an ESPHome device.
+
+    Saves the provided YAML content as the device's configuration file, then
+    automatically validates it. The configuration is saved even if validation fails,
+    so you can fix issues and re-save.
+
+    **Workflow**: First read the current config with `get_device_configuration`,
+    make your changes, then pass the complete modified YAML here. Ensure edits
+    conform to the ESPHome schema (use `get_esphome_schema` to verify).
+
+    Args:
+        device_name: The name of the device whose configuration to edit.
+        yaml_content: The complete YAML configuration content to save.
+    """
+    logger.info("Editing configuration for device=%r", device_name)
+    try:
+        resolved = await _resolve_filename(device_name)
+    except Exception as e:
+        logger.error("Failed to resolve device %r: %s", device_name, e)
+        return f"Error: {e}"
+
+    if isinstance(resolved, str):
+        return resolved
+
+    device, filename = resolved
+    name = device.get("friendly_name") or device.get("name", "unknown")
+
+    # Save the configuration
+    try:
+        await get_client().save_configuration(filename, yaml_content)
+    except Exception as e:
+        logger.error("Failed to save configuration for %r: %s", device_name, e)
+        return f"Error saving configuration: {e}"
+
+    logger.info("Configuration saved for %r, running validation", name)
+
+    # Validate after saving
+    try:
+        output, exit_code = await get_client().validate_configuration(filename)
+    except Exception as e:
+        logger.warning("Configuration saved for %r but validation failed: %s", name, e)
+        return f"Configuration saved for {name}.\n\nWarning: Could not run validation: {e}"
+
+    status = "VALID" if exit_code == 0 else "INVALID"
+    logger.info("Edit+validate for %r: %s (exit_code=%d)", name, status, exit_code)
+    return f"Configuration saved for {name}.\n\nValidation result: {status}\n\n{output}"
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+    }
+)
+async def install_device_configuration(device_name: str) -> str:
+    """Compile and flash the current configuration to an ESPHome device via OTA.
+
+    This compiles the device's saved YAML configuration and uploads the firmware
+    to the device over-the-air. The device must be online for OTA upload to succeed.
+    This operation may take several minutes.
+
+    Args:
+        device_name: The name of the device to install the configuration on.
+    """
+    logger.info("Installing configuration for device=%r", device_name)
+    try:
+        resolved = await _resolve_filename(device_name)
+    except Exception as e:
+        logger.error("Failed to resolve device %r: %s", device_name, e)
+        return f"Error: {e}"
+
+    if isinstance(resolved, str):
+        return resolved
+
+    device, filename = resolved
+    name = device.get("friendly_name") or device.get("name", "unknown")
+
+    try:
+        output, exit_code = await get_client().upload_configuration(filename)
+    except Exception as e:
+        logger.error("Failed to install configuration for %r: %s", device_name, e)
+        return f"Error installing configuration: {e}"
+
+    status = "SUCCESS" if exit_code == 0 else "FAILED"
+    logger.info("Install for %r: %s (exit_code=%d)", name, status, exit_code)
+    return f"Install result for {name}: {status}\n\n{output}"
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": True,
+    }
+)
+async def update_device(device_name: str) -> str:
+    """Update an ESPHome device to the latest firmware version.
+
+    Recompiles the device's configuration with the current ESPHome version and
+    flashes it via OTA. Use `check_device_update` first to verify an update is
+    available. The device must be online for OTA upload to succeed.
+    This operation may take several minutes.
+
+    Args:
+        device_name: The name of the device to update.
+    """
+    logger.info("Updating device=%r", device_name)
+    try:
+        resolved = await _resolve_filename(device_name)
+    except Exception as e:
+        logger.error("Failed to resolve device %r: %s", device_name, e)
+        return f"Error: {e}"
+
+    if isinstance(resolved, str):
+        return resolved
+
+    device, filename = resolved
+    name = device.get("friendly_name") or device.get("name", "unknown")
+
+    try:
+        output, exit_code = await get_client().upload_configuration(filename)
+    except Exception as e:
+        logger.error("Failed to update device %r: %s", device_name, e)
+        return f"Error updating device: {e}"
+
+    status = "SUCCESS" if exit_code == 0 else "FAILED"
+    logger.info("Update for %r: %s (exit_code=%d)", name, status, exit_code)
+    return f"Update result for {name}: {status}\n\n{output}"

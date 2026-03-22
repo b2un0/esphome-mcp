@@ -110,6 +110,63 @@ class ESPHomeClient:
             logger.debug("Got configuration for %s (%d bytes)", filename, len(resp.text))
             return resp.text
 
+    async def _ws_spawn(
+        self,
+        path: str,
+        message: dict[str, Any],
+        timeout: float,
+    ) -> tuple[str, int]:
+        """Run a WebSocket command and collect output.
+
+        Connects to the given WS path, sends the spawn message, and collects
+        line events until an exit event or timeout.
+
+        Args:
+            path: WebSocket endpoint path (e.g. "/logs", "/validate").
+            message: JSON message to send after connecting.
+            timeout: Maximum seconds to wait for the command to complete.
+
+        Returns:
+            Tuple of (collected output text, exit code). Exit code is -1 on timeout.
+        """
+        ws_url = self._ws_url(path)
+        lines: list[str] = []
+        exit_code = -1
+
+        logger.debug("WS %s: connecting (timeout=%.1fs)", path, timeout)
+        try:
+            async with websockets.connect(
+                ws_url,
+                additional_headers=self._ws_auth_header,
+            ) as ws:
+                await ws.send(json.dumps(message))
+                logger.debug("WS %s: sent %r", path, message)
+
+                try:
+                    async with asyncio.timeout(timeout):
+                        async for raw_msg in ws:
+                            msg = json.loads(raw_msg)
+                            if msg.get("event") == "line":
+                                lines.append(msg.get("data", ""))
+                            elif msg.get("event") == "exit":
+                                exit_code = msg.get("code", -1)
+                                logger.debug("WS %s: exited with code %s", path, exit_code)
+                                break
+                except TimeoutError:
+                    logger.debug(
+                        "WS %s: timed out after %.1fs (%d lines)", path, timeout, len(lines)
+                    )
+        except (websockets.exceptions.WebSocketException, OSError) as e:
+            if lines:
+                logger.warning("WS %s: closed with %d lines collected: %s", path, len(lines), e)
+                lines.append(f"\n[Connection closed: {e}]")
+            else:
+                logger.error("WS %s: connection failed: %s", path, e)
+                raise
+
+        logger.debug("WS %s: collected %d lines", path, len(lines))
+        return "\n".join(lines), exit_code
+
     async def get_logs(self, filename: str, duration: float = 10.0) -> str:
         """Connect to the logs WebSocket and collect output for a duration.
 
@@ -120,49 +177,68 @@ class ESPHomeClient:
         Returns:
             Collected log lines joined by newlines.
         """
-        ws_url = self._ws_url("/logs")
-        lines: list[str] = []
-
-        logger.debug(
-            "Connecting to WebSocket %s for %s (duration=%.1fs)", ws_url, filename, duration
+        logger.debug("Fetching logs for %s (duration=%.1fs)", filename, duration)
+        output, _exit_code = await self._ws_spawn(
+            "/logs",
+            {"type": "spawn", "configuration": filename, "port": "OTA"},
+            timeout=duration,
         )
-        try:
-            async with websockets.connect(
-                ws_url,
-                additional_headers=self._ws_auth_header,
-            ) as ws:
-                # Send the configuration to start log streaming
-                await ws.send(
-                    json.dumps({"type": "spawn", "configuration": filename, "port": "OTA"})
-                )
-                logger.debug("Sent log stream request for %s", filename)
+        return output
 
-                try:
-                    async with asyncio.timeout(duration):
-                        async for raw_msg in ws:
-                            msg = json.loads(raw_msg)
-                            if msg.get("event") == "line":
-                                lines.append(msg.get("data", ""))
-                            elif msg.get("event") == "exit":
-                                exit_code = msg.get("code", "?")
-                                logger.debug(
-                                    "Log stream for %s exited with code %s", filename, exit_code
-                                )
-                                break
-                except TimeoutError:
-                    logger.debug(
-                        "Log collection timed out after %.1fs (%d lines)", duration, len(lines)
-                    )
-        except (websockets.exceptions.WebSocketException, OSError) as e:
-            if lines:
-                logger.warning("WebSocket closed with %d lines collected: %s", len(lines), e)
-                lines.append(f"\n[Connection closed: {e}]")
-            else:
-                logger.error("WebSocket connection failed for %s: %s", filename, e)
-                raise
+    async def save_configuration(self, filename: str, yaml_content: str) -> None:
+        """Save a YAML configuration file to the dashboard.
 
-        logger.debug("Collected %d log lines from %s", len(lines), filename)
-        return "\n".join(lines)
+        Args:
+            filename: The configuration filename (e.g. "bike-outlet.yaml").
+            yaml_content: The complete YAML content to save.
+        """
+        if not filename.endswith((".yaml", ".yml")):
+            raise ValueError(f"Invalid configuration filename: {filename}")
+        logger.debug("POST /edit?configuration=%s (%d bytes)", filename, len(yaml_content))
+        async with self._http_client() as client:
+            resp = await client.post(
+                "/edit",
+                params={"configuration": filename},
+                content=yaml_content.encode("utf-8"),
+            )
+            resp.raise_for_status()
+        logger.info("Saved configuration %s", filename)
+
+    async def validate_configuration(
+        self, filename: str, timeout: float = 120.0
+    ) -> tuple[str, int]:
+        """Validate a device configuration via the dashboard.
+
+        Args:
+            filename: The configuration filename.
+            timeout: Maximum seconds to wait (default 120).
+
+        Returns:
+            Tuple of (validation output, exit code). Exit code 0 means valid.
+        """
+        logger.info("Validating configuration %s", filename)
+        return await self._ws_spawn(
+            "/validate",
+            {"type": "spawn", "configuration": filename},
+            timeout=timeout,
+        )
+
+    async def upload_configuration(self, filename: str, timeout: float = 600.0) -> tuple[str, int]:
+        """Compile and upload (install) a configuration to a device via OTA.
+
+        Args:
+            filename: The configuration filename.
+            timeout: Maximum seconds to wait (default 600).
+
+        Returns:
+            Tuple of (compile/upload output, exit code). Exit code 0 means success.
+        """
+        logger.info("Uploading configuration %s", filename)
+        return await self._ws_spawn(
+            "/upload",
+            {"type": "spawn", "configuration": filename, "port": "OTA"},
+            timeout=timeout,
+        )
 
 
 SCHEMA_URL_TEMPLATE = (
