@@ -127,5 +127,28 @@ class ESPHomeClient:
         return "\n".join(lines)
 
 
-settings = ESPHomeSettings()  # type: ignore[call-arg]  # populated from env vars
-client = ESPHomeClient(settings)
+_client: ESPHomeClient | None = None
+_settings_override: ESPHomeSettings | None = None
+
+
+def configure(settings: ESPHomeSettings) -> None:
+    """Set a custom settings override (e.g. for tests). Resets any existing client."""
+    global _settings_override, _client
+    _settings_override = settings
+    _client = None
+
+
+def get_client() -> ESPHomeClient:
+    """Return the shared client, creating it on first access."""
+    global _client
+    if _client is None:
+        settings = _settings_override or ESPHomeSettings()  # type: ignore[call-arg]
+        _client = ESPHomeClient(settings)
+    return _client
+
+
+def reset() -> None:
+    """Clear the shared client (for test teardown)."""
+    global _client, _settings_override
+    _client = None
+    _settings_override = None

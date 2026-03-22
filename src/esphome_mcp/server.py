@@ -5,7 +5,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from esphome_mcp.client import client
+from esphome_mcp.client import get_client
 
 mcp = FastMCP(
     name="ESPHome MCP",
@@ -21,7 +21,7 @@ async def _resolve_device(device_name: str) -> dict[str, Any] | str:
 
     Returns the device dict on success, or an error string if not found.
     """
-    devices = await client.get_configured_devices()
+    devices = await get_client().get_configured_devices()
     name_lower = device_name.lower()
     for device in devices:
         if (
@@ -46,7 +46,7 @@ async def list_devices() -> str:
     Returns device names, versions, addresses, and online status.
     """
     try:
-        devices = await client.get_configured_devices()
+        devices = await get_client().get_configured_devices()
     except Exception as e:
         return f"Error fetching devices: {e}"
 
@@ -73,7 +73,7 @@ async def list_devices() -> str:
 
     version = "unknown"
     with contextlib.suppress(Exception):
-        version = await client.get_version()
+        version = await get_client().get_version()
 
     header = f"ESPHome version: {version}\n{len(devices)} device(s):\n"
     return header + "\n".join(lines)
@@ -142,7 +142,7 @@ async def get_device_configuration(device_name: str) -> str:
         return f"No configuration file found for device '{device_name}'."
 
     try:
-        yaml_content = await client.get_configuration(filename)
+        yaml_content = await get_client().get_configuration(filename)
     except Exception as e:
         return f"Error fetching configuration: {e}"
 
@@ -180,7 +180,7 @@ async def get_device_logs(device_name: str, duration: int = 10) -> str:
         return f"No configuration file found for device '{device_name}'."
 
     try:
-        logs = await client.get_logs(filename, duration=float(duration))
+        logs = await get_client().get_logs(filename, duration=float(duration))
     except Exception as e:
         return f"Error fetching logs: {e}"
 
