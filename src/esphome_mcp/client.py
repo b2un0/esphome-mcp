@@ -223,8 +223,10 @@ class ESPHomeClient:
             timeout=timeout,
         )
 
-    async def upload_configuration(self, filename: str, timeout: float = 600.0) -> tuple[str, int]:
-        """Compile and upload (install) a configuration to a device via OTA.
+    async def run_configuration(self, filename: str, timeout: float = 600.0) -> tuple[str, int]:
+        """Compile and upload a configuration to a device via OTA.
+
+        Uses the /run endpoint which compiles the firmware first, then uploads it.
 
         Args:
             filename: The configuration filename.
@@ -233,9 +235,9 @@ class ESPHomeClient:
         Returns:
             Tuple of (compile/upload output, exit code). Exit code 0 means success.
         """
-        logger.info("Uploading configuration %s", filename)
+        logger.info("Running configuration %s (compile + upload)", filename)
         return await self._ws_spawn(
-            "/upload",
+            "/run",
             {"type": "spawn", "configuration": filename, "port": "OTA"},
             timeout=timeout,
         )

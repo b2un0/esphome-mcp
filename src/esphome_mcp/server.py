@@ -555,7 +555,7 @@ async def install_device_configuration(device_name: str) -> str:
     name = device.get("friendly_name") or device.get("name", "unknown")
 
     try:
-        output, exit_code = await get_client().upload_configuration(filename)
+        output, exit_code = await get_client().run_configuration(filename)
     except Exception as e:
         logger.error("Failed to install configuration for %r: %s", device_name, e)
         return f"Error installing configuration: {e}"
@@ -596,7 +596,7 @@ async def update_device(device_name: str) -> str:
     name = device.get("friendly_name") or device.get("name", "unknown")
 
     try:
-        output, exit_code = await get_client().upload_configuration(filename)
+        output, exit_code = await get_client().run_configuration(filename)
     except Exception as e:
         logger.error("Failed to update device %r: %s", device_name, e)
         return f"Error updating device: {e}"

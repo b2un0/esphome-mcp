@@ -62,7 +62,7 @@ Tests are **integration tests** — they start a real ESPHome dashboard subproce
 | `POST /edit?configuration=X` | HTTP | Save YAML config (raw bytes body) |
 | `WS /logs` | WebSocket | Stream device logs (send `{"type":"spawn","configuration":"...","port":"OTA"}`) |
 | `WS /validate` | WebSocket | Validate config (send `{"type":"spawn","configuration":"..."}`) |
-| `WS /upload` | WebSocket | Compile+flash OTA (send `{"type":"spawn","configuration":"...","port":"OTA"}`) |
+| `WS /run` | WebSocket | Compile+flash OTA (send `{"type":"spawn","configuration":"...","port":"OTA"}`) |
 
 ## ESPHome Schema
 Schemas are fetched from `https://github.com/esphome/esphome-schema/releases/download/<version>/schema.zip` and cached in memory. Each zip contains JSON files per component.
