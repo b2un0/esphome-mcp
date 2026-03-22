@@ -35,7 +35,7 @@ def main() -> None:
 def main_web() -> None:
     _configure_logging()
     _check_connectivity()
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8080)
+    mcp.run(transport="http", host="0.0.0.0", port=8080)
 
 
 if __name__ == "__main__":

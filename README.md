@@ -6,8 +6,10 @@ An MCP (Model Context Protocol) server for interacting with an [ESPHome](https:/
 
 | Tool | Description |
 |------|-------------|
-| `list_devices` | List all configured devices with versions, addresses, and platform info |
+| `list_devices` | List all configured devices with versions, addresses, status, and platform info |
+| `list_device_names` | List only the names of all configured devices |
 | `check_device_update` | Check if a firmware update is available for a specific device |
+| `get_device_status` | Check whether a device is online or offline |
 | `get_device_configuration` | View the YAML configuration file for a device |
 | `get_device_logs` | Stream and collect logs from a device (configurable duration, max 30s) |
 
@@ -32,6 +34,7 @@ Set the following environment variables:
 | `ESPHOME_DASHBOARD_URL` | Yes | Base URL of your ESPHome dashboard (e.g., `http://192.168.1.100:6052`) |
 | `ESPHOME_DASHBOARD_USERNAME` | No | Username for Basic Auth (if dashboard auth is enabled) |
 | `ESPHOME_DASHBOARD_PASSWORD` | No | Password for Basic Auth (if dashboard auth is enabled) |
+| `LOG_LEVEL` | No | Logging level (default: `INFO`) |
 
 ## Usage
 
@@ -76,6 +79,33 @@ Add to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
 }
 ```
 
+### Claude Code
+
+Add a `.claude/settings.json` to your project to auto-approve the read-only tools exposed by this server:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__esphome__list_devices",
+      "mcp__esphome__list_device_names",
+      "mcp__esphome__check_device_update",
+      "mcp__esphome__get_device_status",
+      "mcp__esphome__get_device_configuration",
+      "mcp__esphome__get_device_logs"
+    ]
+  },
+  "mcpServers": {
+    "esphome": {
+      "command": "esphome-mcp",
+      "env": {
+        "ESPHOME_DASHBOARD_URL": "http://192.168.1.100:6052"
+      }
+    }
+  }
+}
+```
+
 ### Docker
 
 Build the image:
@@ -93,7 +123,7 @@ docker run --rm \
   esphome-mcp
 ```
 
-The Docker image runs the MCP server in streamable-http mode on port 8080.
+The Docker image runs the MCP server in HTTP mode on port 8080.
 
 #### Docker Compose
 
@@ -120,13 +150,13 @@ services:
       - esphome
 ```
 
-To use the Docker container with Claude Desktop, configure with the streamable-http URL:
+To use the Docker container with Claude Desktop, configure with the HTTP URL:
 
 ```json
 {
   "mcpServers": {
     "esphome": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "http://localhost:8080/mcp"
     }
   }
