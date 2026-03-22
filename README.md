@@ -75,3 +75,60 @@ Add to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
   }
 }
 ```
+
+### Docker
+
+Build the image:
+
+```bash
+docker build -t esphome-mcp .
+```
+
+Run standalone:
+
+```bash
+docker run -i --rm \
+  -e ESPHOME_DASHBOARD_URL=http://192.168.1.100:6052 \
+  esphome-mcp
+```
+
+#### Docker Compose
+
+```yaml
+services:
+  esphome:
+    image: ghcr.io/esphome/esphome
+    volumes:
+      - ./esphome-config:/config
+    ports:
+      - "6052:6052"
+    restart: unless-stopped
+
+  esphome-mcp:
+    build: .
+    environment:
+      - ESPHOME_DASHBOARD_URL=http://esphome:6052
+    # Uncomment if your dashboard has auth enabled:
+    # - ESPHOME_DASHBOARD_USERNAME=admin
+    # - ESPHOME_DASHBOARD_PASSWORD=your-password
+    stdin_open: true
+    depends_on:
+      - esphome
+```
+
+To use the Docker container with Claude Desktop, configure it with the `docker` command:
+
+```json
+{
+  "mcpServers": {
+    "esphome": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "ESPHOME_DASHBOARD_URL=http://192.168.1.100:6052",
+        "esphome-mcp"
+      ]
+    }
+  }
+}
+```
