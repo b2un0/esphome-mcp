@@ -12,7 +12,8 @@ RUN pip install uv && \
 
 EXPOSE 8080
 
+COPY healthcheck.py .
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD python -c "import httpx, os; httpx.get(os.environ['ESPHOME_DASHBOARD_URL'].rstrip('/')+'/ping', timeout=5).raise_for_status()"
+    CMD ["python", "healthcheck.py"]
 
 ENTRYPOINT ["esphome-mcp-web"]
