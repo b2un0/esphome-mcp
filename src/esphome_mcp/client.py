@@ -39,6 +39,9 @@ class ESPHomeClient:
                 f"{settings.esphome_dashboard_username}:{settings.esphome_dashboard_password}".encode()
             ).decode()
             self._ws_auth_header = {"Authorization": f"Basic {credentials}"}
+            logger.info("Configured Basic Auth for dashboard at %s", self._base_url)
+        else:
+            logger.info("Configured dashboard client at %s (no auth)", self._base_url)
 
     def _http_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -54,32 +57,42 @@ class ESPHomeClient:
 
     async def get_devices(self) -> list[dict[str, Any]]:
         """Fetch all devices from the dashboard."""
+        logger.debug("GET /devices (all)")
         async with self._http_client() as client:
             resp = await client.get("/devices")
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
             configured: list[dict[str, Any]] = data.get("configured", [])
             importable: list[dict[str, Any]] = data.get("importable", [])
+            logger.debug(
+                "Got %d configured, %d importable devices", len(configured), len(importable)
+            )
             return configured + importable
 
     async def get_configured_devices(self) -> list[dict[str, Any]]:
         """Fetch only configured devices from the dashboard."""
+        logger.debug("GET /devices (configured only)")
         async with self._http_client() as client:
             resp = await client.get("/devices")
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
             result: list[dict[str, Any]] = data.get("configured", [])
+            logger.debug("Got %d configured devices", len(result))
             return result
 
     async def get_version(self) -> str:
         """Fetch the ESPHome version from the dashboard."""
+        logger.debug("GET /version")
         async with self._http_client() as client:
             resp = await client.get("/version")
             resp.raise_for_status()
-            return resp.json().get("version", "unknown")
+            version: str = resp.json().get("version", "unknown")
+            logger.debug("ESPHome version: %s", version)
+            return version
 
     async def ping(self) -> None:
         """Request a ping status update for all devices."""
+        logger.debug("GET /ping")
         async with self._http_client() as client:
             resp = await client.get("/ping")
             resp.raise_for_status()
@@ -88,9 +101,11 @@ class ESPHomeClient:
         """Fetch the YAML configuration for a device."""
         if not filename.endswith((".yaml", ".yml")):
             raise ValueError(f"Invalid configuration filename: {filename}")
+        logger.debug("GET /edit?configuration=%s", filename)
         async with self._http_client() as client:
             resp = await client.get("/edit", params={"configuration": filename})
             resp.raise_for_status()
+            logger.debug("Got configuration for %s (%d bytes)", filename, len(resp.text))
             return resp.text
 
     async def get_logs(self, filename: str, duration: float = 10.0) -> str:
@@ -106,6 +121,9 @@ class ESPHomeClient:
         ws_url = self._ws_url("/logs")
         lines: list[str] = []
 
+        logger.debug(
+            "Connecting to WebSocket %s for %s (duration=%.1fs)", ws_url, filename, duration
+        )
         try:
             async with websockets.connect(
                 ws_url,
@@ -113,6 +131,7 @@ class ESPHomeClient:
             ) as ws:
                 # Send the configuration to start log streaming
                 await ws.send(json.dumps({"configuration": filename, "port": "OTA"}))
+                logger.debug("Sent log stream request for %s", filename)
 
                 try:
                     async with asyncio.timeout(duration):
@@ -121,15 +140,24 @@ class ESPHomeClient:
                             if msg.get("event") == "line":
                                 lines.append(msg.get("data", ""))
                             elif msg.get("event") == "exit":
+                                exit_code = msg.get("code", "?")
+                                logger.debug(
+                                    "Log stream for %s exited with code %s", filename, exit_code
+                                )
                                 break
                 except TimeoutError:
-                    pass  # Expected — we collect for the requested duration
+                    logger.debug(
+                        "Log collection timed out after %.1fs (%d lines)", duration, len(lines)
+                    )
         except (websockets.exceptions.WebSocketException, OSError) as e:
             if lines:
+                logger.warning("WebSocket closed with %d lines collected: %s", len(lines), e)
                 lines.append(f"\n[Connection closed: {e}]")
             else:
+                logger.error("WebSocket connection failed for %s: %s", filename, e)
                 raise
 
+        logger.debug("Collected %d log lines from %s", len(lines), filename)
         return "\n".join(lines)
 
 
@@ -142,6 +170,7 @@ def configure(settings: ESPHomeSettings) -> None:
     global _settings_override, _client
     _settings_override = settings
     _client = None
+    logger.info("Client configured with override URL=%s", settings.esphome_dashboard_url)
 
 
 def get_client() -> ESPHomeClient:
@@ -158,3 +187,4 @@ def reset() -> None:
     global _client, _settings_override
     _client = None
     _settings_override = None
+    logger.info("Client reset")
