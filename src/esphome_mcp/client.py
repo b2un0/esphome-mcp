@@ -130,7 +130,9 @@ class ESPHomeClient:
                 additional_headers=self._ws_auth_header,
             ) as ws:
                 # Send the configuration to start log streaming
-                await ws.send(json.dumps({"configuration": filename, "port": "OTA"}))
+                await ws.send(
+                    json.dumps({"type": "spawn", "configuration": filename, "port": "OTA"})
+                )
                 logger.debug("Sent log stream request for %s", filename)
 
                 try:
