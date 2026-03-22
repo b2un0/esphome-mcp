@@ -2,6 +2,7 @@
 name = "esphome-mcp"
 dynamic = ["version"]
 description = "MCP server for interacting with an ESPHome dashboard"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2.0.0",
