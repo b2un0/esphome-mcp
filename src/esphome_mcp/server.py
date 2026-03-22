@@ -99,6 +99,33 @@ async def list_devices() -> str:
         "destructiveHint": False,
     }
 )
+async def list_device_names() -> str:
+    """List the names of all devices configured in the ESPHome dashboard.
+
+    Returns only device names, one per line.
+    """
+    logger.info("Listing device names")
+    try:
+        devices = await get_client().get_configured_devices()
+    except Exception as e:
+        logger.error("Failed to fetch devices: %s", e)
+        return f"Error fetching devices: {e}"
+
+    if not devices:
+        logger.info("No devices found")
+        return "No devices found in the ESPHome dashboard."
+
+    names = [d.get("name", "unknown") for d in devices]
+    logger.info("Found %d device(s): %s", len(names), names)
+    return "\n".join(names)
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+    }
+)
 async def check_device_update(device_name: str) -> str:
     """Check if a firmware update is available for an ESPHome device.
 

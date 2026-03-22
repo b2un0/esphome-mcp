@@ -20,6 +20,20 @@ async def test_list_devices(mcp_client: Client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_device_names(mcp_client: Client) -> None:
+    """list_device_names should return only device names, one per line."""
+    result = await mcp_client.call_tool("list_device_names", {})
+    text = result.content[0].text
+
+    names = text.strip().split("\n")
+    assert "bike-outlet" in names
+    assert "garage-sensor" in names
+    # Should not contain verbose details
+    assert "Config:" not in text
+    assert "Platform:" not in text
+
+
+@pytest.mark.asyncio
 async def test_list_devices_contains_platform(mcp_client: Client) -> None:
     """list_devices should include platform information."""
     result = await mcp_client.call_tool("list_devices", {})
