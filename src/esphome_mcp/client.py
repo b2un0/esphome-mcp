@@ -78,6 +78,12 @@ class ESPHomeClient:
             resp.raise_for_status()
             return resp.json().get("version", "unknown")
 
+    async def ping(self) -> None:
+        """Request a ping status update for all devices."""
+        async with self._http_client() as client:
+            resp = await client.get("/ping")
+            resp.raise_for_status()
+
     async def get_configuration(self, filename: str) -> str:
         """Fetch the YAML configuration for a device."""
         if not filename.endswith((".yaml", ".yml")):

@@ -62,9 +62,12 @@ async def list_devices() -> str:
         address = d.get("address", "n/a")
         platform = d.get("target_platform", "n/a")
 
+        status = d.get("status", "unknown")
+
         lines.append(
             f"- {name}\n"
             f"  Config: {config}\n"
+            f"  Status: {status}\n"
             f"  Deployed version: {deployed}\n"
             f"  Current version: {current}\n"
             f"  Address: {address}\n"
@@ -114,6 +117,38 @@ async def check_device_update(device_name: str) -> str:
         return f"{name}: Update available! Running {deployed}, latest is {current}."
 
     return f"{name}: Up to date at version {deployed}."
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+    }
+)
+async def get_device_status(device_name: str) -> str:
+    """Check whether an ESPHome device is online or offline.
+
+    Triggers a ping refresh and returns the current status.
+
+    Args:
+        device_name: The name of the device to check.
+    """
+    try:
+        with contextlib.suppress(Exception):
+            await get_client().ping()
+        result = await _resolve_device(device_name)
+    except Exception as e:
+        return f"Error: {e}"
+
+    if isinstance(result, str):
+        return result
+
+    device = result
+    name = device.get("friendly_name") or device.get("name", "unknown")
+    status = device.get("status", "unknown")
+    address = device.get("address", "n/a")
+
+    return f"{name}: {status} (address: {address})"
 
 
 @mcp.tool(

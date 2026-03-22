@@ -97,6 +97,25 @@ async def test_get_device_logs_offline_device(mcp_client: Client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_device_status(mcp_client: Client) -> None:
+    """get_device_status should return status for a known device."""
+    result = await mcp_client.call_tool("get_device_status", {"device_name": "bike-outlet"})
+    text = result.content[0].text
+
+    assert "bike" in text.lower() or "Bike Outlet" in text
+    assert "address" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_device_status_not_found(mcp_client: Client) -> None:
+    """get_device_status should return error for unknown device."""
+    result = await mcp_client.call_tool("get_device_status", {"device_name": "nonexistent"})
+    text = result.content[0].text
+
+    assert "not found" in text.lower()
+
+
+@pytest.mark.asyncio
 async def test_check_device_update_case_insensitive(mcp_client: Client) -> None:
     """Tools should resolve devices by name case-insensitively."""
     result = await mcp_client.call_tool("check_device_update", {"device_name": "Bike-Outlet"})
